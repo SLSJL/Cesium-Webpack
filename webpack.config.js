@@ -1,122 +1,130 @@
 const path = require("path");
-const webpack = require("webpack");
 const glob = require("glob");
+
+const webpack = require("webpack");
 
 const HtmlWebpackPlugin = require("html-webpack-plugin");
 const CopyWebpackPlugin = require("copy-webpack-plugin");
 const { CleanWebpackPlugin } = require("clean-webpack-plugin");
 const PurifycssWebpack = require("purifycss-webpack");
 const MiniCssExtractPlugin = require("mini-css-extract-plugin");
+const UglifyJSPlugin = require("uglifyjs-webpack-plugin");
 
-const devMode = process.env.NODE_ENV !== "production";
+// The path to the cesium source code
+const cesiumSource = "node_modules/cesium/Source";
+const cesiumWorkers = "../Build/Cesium/Workers";
 
-let cesiumSource = "./node_modules/cesium/Source";
-let cesiumWorkers = "../Build/Cesium/Workers";
+module.exports = [
+  {
+    context: __dirname,
+    entry: {
+      app: "./src/main.js"
+    },
+    output: {
+      filename: "[name].js",
+      path: path.resolve(__dirname, "dist"),
 
-module.exports = {
-  entry: "./src/main.js",
-  output: {
-    filename: "build.js",
-    path: path.resolve("./build") //路径必须是绝对路径
-  },
-  resolve: {
-    alias: {
-      "@": path.resolve("src"),
-      cesium: path.resolve(__dirname, cesiumSource)
-    }
-  },
-  //配置webpack.config.js devServer
-  devServer: {
-    contentBase: "build", //定义内容位置
-    port: 9090, //端口号
-    compress: true, //启动服务器压缩文件,
-    open: true, //自动打开默认浏览器
-    hot: true //热更新
-  },
-  module: {
-    unknownContextCritical: /^.\/.*$/,
-    unknownContextCritical: false,
-    rules: [
-      {
-        test: /\.js$/,
-        exclude: /node_modules/,
-        use: {
-          loader: "babel-loader"
+      // Needed by Cesium for multiline strings
+      sourcePrefix: ""
+    },
+    amd: {
+      // Enable webpack-friendly use of require in cesium
+      toUrlUndefined: true
+    },
+    node: {
+      // Resolve node module use of fs
+      fs: "empty"
+    },
+    resolve: {
+      alias: {
+        // Cesium module name
+        cesium: path.resolve(__dirname, cesiumSource)
+      }
+    },
+    module: {
+      rules: [
+        {
+          test: /\.css$/,
+          use: ["style-loader", "css-loader"]
+        },
+        {
+          test: /\.less$/, // 可以打包后缀为sass/scss/css的文件
+          use: ["style-loader", "css-loader", "less-loader"]
+        },
+        {
+          test: /\.(png|gif|jpg|jpeg|svg|xml|json)$/,
+          use: ["url-loader"]
         }
-      },
-      {
-        test: /\.(c|le)ss$/, // 可以打包后缀为sass/scss/css的文件
-        use: [MiniCssExtractPlugin.loader, "css-loader", "less-loader"]
-      },
+      ]
+    },
+    plugins: [
+      new HtmlWebpackPlugin({
+        template: "./src/index.html", //指定模板
+        title: "Cesuim", //指定title
+        minify: {
+          removeAttributeQuotes: true, //去除属性的双引号
+          collapseWhitespace: true //折叠代码为一行
+        }, //上线时优化代码使用
+        hash: true //清除缓存
+      }),
+      //在html-webpack-plugin之后载入
+      new PurifycssWebpack({
+        paths: glob.sync(path.resolve("src/*.html"))
+      }),
+      new CleanWebpackPlugin({
+        cleanAfterEveryBuildPatterns: ["dist"]
+      }), //该配置需要在new HtmlWebpackPlugin之前
+      new webpack.HotModuleReplacementPlugin(),
+      new CopyWebpackPlugin([
+        {
+          from: "./src/docs",
+          to: "pubilc"
+        }
+      ]),
+      new UglifyJSPlugin({
+        uglifyOptions: {
+          warning: "verbose",
+          ecma: 6,
+          beautify: false,
+          compress: false,
+          comments: false,
+          mangle: false,
+          toplevel: false,
+          keep_classnames: true,
+          keep_fnames: true
+        }
+      }),
 
-      {
-        test: /\.woff($|\?)|\.woff2($|\?)|\.ttf($|\?)|\.eot($|\?)|\.svg($|\?)/,
-        use: "url-loader"
-      },
-      {
-        test: /\.(png|gif|jpg|jpeg|svg|xml|json)$/,
-        use: ["url-loader"]
-      }
-    ]
-  },
-  plugins: [
-    new HtmlWebpackPlugin({
-      template: "./src/index.html", //指定模板
-      title: "Cesuim", //指定title
-      minify: {
-        removeAttributeQuotes: true, //去除属性的双引号
-        collapseWhitespace: true //折叠代码为一行
-      }, //上线时优化代码使用
-      hash: true //清除缓存
-    }),
-    //在html-webpack-plugin之后载入
-    new PurifycssWebpack({
-      paths: glob.sync(path.resolve("src/*.html"))
-    }),
-    new CleanWebpackPlugin({
-      cleanAfterEveryBuildPatterns: ["dist"]
-    }), //该配置需要在new HtmlWebpackPlugin之前
-    new webpack.HotModuleReplacementPlugin(),
-    new CopyWebpackPlugin([
-      {
-        from: "./src/docs",
-        to: "pubilc"
-      }
-    ]),
-    new MiniCssExtractPlugin({
-      // 这里的配置和webpackOptions.output中的配置相似
-      // 即可以通过在名字前加路径，来决定打包后的文件存在的路径
-      filename: devMode ? "css/[name].css" : "css/[name].[hash].css",
-      chunkFilename: devMode ? "css/[id].css" : "css/[id].[hash].css"
-    }),
+      // Copy Cesium Assets, Widgets, and Workers to a static directory
+      new CopyWebpackPlugin([
+        { from: path.join(cesiumSource, cesiumWorkers), to: "Workers" }
+      ]),
+      new CopyWebpackPlugin([
+        { from: path.join(cesiumSource, "Assets"), to: "Assets" }
+      ]),
+      new CopyWebpackPlugin([
+        { from: path.join(cesiumSource, "Widgets"), to: "Widgets" }
+      ]),
+      new webpack.DefinePlugin({
+        // Define relative base path in cesium for loading assets
+        CESIUM_BASE_URL: JSON.stringify("")
+      }),
+      // Split cesium into a seperate bundle
+      new webpack.optimize.RuntimeChunkPlugin({
+        name: "cesium",
+        minChunks: function(module) {
+          return module.context && module.context.indexOf("cesium") !== -1;
+        }
+      })
+    ],
 
-    // cesium.js
-    new CopyWebpackPlugin([
-      {
-        from: path.join(cesiumSource, cesiumWorkers),
-        to: "Workers"
-      }
-    ]),
-    new CopyWebpackPlugin([
-      {
-        from: path.join(cesiumSource, "Assets"),
-        to: "Assets"
-      }
-    ]),
-    new CopyWebpackPlugin([
-      {
-        from: path.join(cesiumSource, "Widgets"),
-        to: "Widgets"
-      }
-    ]),
-    new CopyWebpackPlugin([
-      {
-        from: path.join(cesiumSource, "ThirdParty/Workers"),
-        to: "ThirdParty/Workers"
-      }
-    ]),
-    new webpack.DefinePlugin({
-      CESIUM_BASE_URL: JSON.stringify("./")
-    })
-  ]
-};
+    // development server options
+    devServer: {
+      contentBase: path.join(__dirname, "dist"),
+      port: 9090, //端口号
+      compress: true, //启动服务器压缩文件,
+      open: true, //自动打开默认浏览器
+      hot: true //热更新
+    }
+  }
+];
