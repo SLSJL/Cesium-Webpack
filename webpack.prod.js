@@ -8,7 +8,7 @@ const CopyWebpackPlugin = require("copy-webpack-plugin");
 const { CleanWebpackPlugin } = require("clean-webpack-plugin");
 const PurifycssWebpack = require("purifycss-webpack");
 const MiniCssExtractPlugin = require("mini-css-extract-plugin");
-const UglifyJSPlugin = require("uglifyjs-webpack-plugin");
+const TerserPlugin = require("terser-webpack-plugin");
 
 // The path to the cesium source code
 const cesiumSource = "node_modules/cesium/Source";
@@ -18,12 +18,11 @@ module.exports = [
   {
     context: __dirname,
     entry: {
-      app: "./src/main.js"
+      app: path.resolve(__dirname, "./src/main.js")
     },
     output: {
       filename: "[name].js",
       path: path.resolve(__dirname, "dist"),
-
       // Needed by Cesium for multiline strings
       sourcePrefix: ""
     },
@@ -53,7 +52,11 @@ module.exports = [
         },
         {
           test: /\.(png|gif|jpg|jpeg|svg|xml|json)$/,
-          use: ["url-loader"]
+          use: [
+            {
+              loader: "url-loader"
+            }
+          ]
         }
       ]
     },
@@ -75,26 +78,19 @@ module.exports = [
         cleanAfterEveryBuildPatterns: ["dist"]
       }), //该配置需要在new HtmlWebpackPlugin之前
       new webpack.HotModuleReplacementPlugin(),
-      new CopyWebpackPlugin([
-        {
-          from: "./src/docs",
-          to: "pubilc"
-        }
-      ]),
-      new UglifyJSPlugin({
-        uglifyOptions: {
-          warning: "verbose",
-          ecma: 6,
-          beautify: false,
-          compress: false,
-          comments: false,
-          mangle: false,
-          toplevel: false,
-          keep_classnames: true,
-          keep_fnames: true
+
+      new TerserPlugin({
+        parallel: true,
+        terserOptions: {
+          ecma: 6
         }
       }),
-
+      new CopyWebpackPlugin([
+        {
+          from: path.resolve(__dirname, "src/public"),
+          to: "./pubilc"
+        }
+      ]),
       // Copy Cesium Assets, Widgets, and Workers to a static directory
       new CopyWebpackPlugin([
         { from: path.join(cesiumSource, cesiumWorkers), to: "Workers" }
@@ -120,11 +116,11 @@ module.exports = [
 
     // development server options
     devServer: {
-      contentBase: path.join(__dirname, "dist"),
       port: 9090, //端口号
       compress: true, //启动服务器压缩文件,
       open: true, //自动打开默认浏览器
-      hot: true //热更新
+      hot: true, //热更新
+      overlay: true
     }
   }
 ];
